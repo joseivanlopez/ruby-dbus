@@ -3,15 +3,19 @@
 require "dbus"
 
 bus = DBus::SessionBus.instance
-service = bus.service("org.opensuse.Test")
+service = bus.service("org.opensuse.Yast")
 
-# car = service.object("/org/opensuse/Test/Car1")
-# car.default_iface = "org.opensuse.Test.Car1"
+storage = service.object("/org/opensuse/Yast/Storage")
+storage_objects = storage["org.freedesktop.DBus.ObjectManager"].GetManagedObjects.first
 
-manager = service.object("/org/opensuse/Test/Manager")
-require "byebug"; byebug
-objects = manager["org.freedesktop.DBus.ObjectManager"].GetManagedObjects
+disks_path = storage_objects.keys.first
+disks = service.object(disks_path)
+disks_objects = disks["org.freedesktop.DBus.ObjectManager"].GetManagedObjects.first
 
+sda_path = disks_objects.keys.first
+sda = service.object(sda_path)
+
+puts "disk: #{sda["org.opensuse.Yast.Storage.Disk"]["Name"]}"
 
 # car[DBus::PROPERTY_INTERFACE].on_signal("PropertiesChanged") do |iface, attrs, invalid_attrs|
 #   require "byebug"; byebug

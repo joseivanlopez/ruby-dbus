@@ -3,7 +3,7 @@
 require "dbus"
 Thread.abort_on_exception = true
 
-module Test
+module Yast
   module DBus
     class Service
       attr_reader :bus
@@ -13,99 +13,142 @@ module Test
       end
 
       def export
-        service = bus.request_service("org.opensuse.Test")
-        manager = Manager.new("/org/opensuse/Test/Manager")
-        manager.export(service)
+        storage.export
       end
 
       def dispatch
         bus.dispatch_message_queue
       end
+
+      def storage
+        @storage ||= Storage.new(self, "/org/opensuse/Yast/Storage")
+      end
+
+      def dbus_service
+        @dbus_service ||= bus.request_service("org.opensuse.Yast")
+      end
     end
 
-    class Manager < ::DBus::Object
-      def export(service)
-        service.export(self)
-        service.export(car_a)
-        service.export(car_b)
+    class Storage < ::DBus::Object
+      attr_reader :yast_service
+
+      def initialize(service, path)
+        super(path)
+
+        @yast_service = service
       end
 
-      def car_a
-        @car_a ||= Car.new("/org/opensuse/Test/Manager/CarA")
+      def export
+        yast_service.dbus_service.export(self)
+        disks.export
       end
 
-      def car_b
-        @car_b ||= Car.new("/org/opensuse/Test/Manager/CarB")
+      def disks
+        @disks ||= Disks.new(yast_service, "/org/opensuse/Yast/Storage/Disks")
       end
 
       dbus_interface "org.freedesktop.DBus.ObjectManager" do
-        dbus_method :GetManagedObjects, "out objects:a{oa{sa{sv}}}" do
-          [
-            {
-              car_a.path => [
-                {
-                  "org.opensuse.Test.Car1" => [
-                    { "Running" => car_a.running }
-                  ]
-                }
-              ]
-            },
-            {
-              car_a.path => [
-                {
-                  "org.opensuse.Test.Car1" => [
-                    { "Running" => car_a.running }
-                  ]
-                }
-              ]
+        dbus_method :GetManagedObjects, "out objects:a{sa{sa{sv}}}" do
+          objects = {
+            disks.path => {
+              "org.freedesktop.DBus.ObjectManager" => {}
             }
-          ]
+          }
+
+          [objects]
         end
       end
     end
 
-    class Car < ::DBus::Object
-      attr_reader :instance
+    class Disks < ::DBus::Object
+      attr_reader :yast_service
 
-      def initialize(path)
-        super
+      def initialize(service, path)
+        super(path)
 
-        @instance = ::Car.new
-        @foo = false
+        @yast_service = service
       end
 
-      def running=(value)
-        instance.status = (value == 1) ? :on : :off
+      def export
+        yast_service.dbus_service.export(self)
+        disks.each(&:export)
       end
 
-      def running
-        instance.running? ? 1 : 0
+      def disks
+        @disks ||= storage_disks.map { |d| Disk.new(yast_service, d) }
       end
 
-      dbus_interface "org.opensuse.Test.Car1" do
-        dbus_accessor :running, "u"
-        dbus_attr_accessor :foo, "b"
+      def storage_disks
+        [
+          Yast::Disk.new("/dev/sda"),
+          Yast::Disk.new("/dev/sdb")
+        ]
+      end
+
+      dbus_interface "org.freedesktop.DBus.ObjectManager" do
+        dbus_method :GetManagedObjects, "out objects:a{sa{sa{sv}}}" do
+          objects = disks.inject({}) { |h, d| h.merge(d.interfaces_attributes) }
+
+          [objects]
+        end
+      end
+    end
+
+    class Disk < ::DBus::Object
+      attr_reader :yast_service
+
+      attr_reader :storage_disk
+
+      def initialize(service, disk)
+        @yast_service = service
+        @storage_disk = disk
+
+        name = disk.name.split("/").last.capitalize
+        path = "/org/opensuse/Yast/Storage/Disks/#{name}"
+
+        super(path)
+      end
+
+      def export
+        yast_service.dbus_service.export(self)
+      end
+
+      def interfaces_attributes
+        {
+          path => {
+            "org.opensuse.Yast.Storage.Disk" => {
+              "Name" => name
+            }
+          }
+        }
+      end
+
+      def name
+        storage_disk.name
+      end
+
+      def name=(value)
+        storage_disk.name = value
+      end
+
+      dbus_interface "org.opensuse.Yast.Storage.Disk" do
+        dbus_accessor :name, "s"
       end
     end
   end
-end
 
-class Car
-  attr_accessor :color
-  attr_accessor :status
+  class Disk
+    attr_accessor :name
 
-  def initialize
-    @status = :off
-  end
-
-  def running?
-    status == :on
+    def initialize(name)
+      @name = name
+    end
   end
 end
 
 puts "listening"
 
-service = Test::DBus::Service.new
+service = Yast::DBus::Service.new
 service.export
 
 loop do
