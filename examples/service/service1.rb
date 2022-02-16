@@ -14,12 +14,53 @@ module Test
 
       def export
         service = bus.request_service("org.opensuse.Test")
-        object = Car.new("/org/opensuse/Test/Car1")
-        service.export(object)
+        manager = Manager.new("/org/opensuse/Test/Manager")
+        manager.export(service)
       end
 
       def dispatch
         bus.dispatch_message_queue
+      end
+    end
+
+    class Manager < ::DBus::Object
+      def export(service)
+        service.export(self)
+        service.export(car_a)
+        service.export(car_b)
+      end
+
+      def car_a
+        @car_a ||= Car.new("/org/opensuse/Test/Manager/CarA")
+      end
+
+      def car_b
+        @car_b ||= Car.new("/org/opensuse/Test/Manager/CarB")
+      end
+
+      dbus_interface "org.freedesktop.DBus.ObjectManager" do
+        dbus_method :GetManagedObjects, "out objects:a{oa{sa{sv}}}" do
+          [
+            {
+              car_a.path => [
+                {
+                  "org.opensuse.Test.Car1" => [
+                    { "Running" => car_a.running }
+                  ]
+                }
+              ]
+            },
+            {
+              car_a.path => [
+                {
+                  "org.opensuse.Test.Car1" => [
+                    { "Running" => car_a.running }
+                  ]
+                }
+              ]
+            }
+          ]
+        end
       end
     end
 
